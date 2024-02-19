@@ -100,7 +100,7 @@ impl ShortName {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
-pub(crate) struct DirFileEntryData {
+pub struct DirFileEntryData {
     name: [u8; 11],
     attrs: FileAttributes,
     reserved_0: u8,
@@ -242,6 +242,10 @@ impl DirFileEntryData {
 
     pub(crate) fn set_deleted(&mut self) {
         self.name[0] = DIR_ENTRY_DELETED_FLAG;
+    }
+
+    pub(crate) fn set_name(&mut self, name: [u8; 11]) {
+        self.name = name;
     }
 
     pub(crate) fn is_end(&self) -> bool {
@@ -407,7 +411,7 @@ impl DirEntryData {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct DirEntryEditor {
+pub struct DirEntryEditor {
     data: DirFileEntryData,
     pos: u64,
     dirty: bool,

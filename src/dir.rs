@@ -20,7 +20,7 @@ type LfnUtf16 = ();
 
 const SFN_PADDING: u8 = 0x20;
 
-pub(crate) enum DirRawStream<'a, T: ReadWriteSeek + 'a> {
+pub enum DirRawStream<'a, T: ReadWriteSeek + 'a> {
     File(File<'a, T>),
     Root(DiskSlice<FsIoAdapter<'a, T>>),
 }
@@ -33,7 +33,7 @@ impl<'a, T: ReadWriteSeek> DirRawStream<'a, T> {
         }
     }
 
-    fn first_cluster(&self) -> Option<u32> {
+    pub fn first_cluster(&self) -> Option<u32> {
         match self {
             &DirRawStream::File(ref file) => file.first_cluster(),
             &DirRawStream::Root(_) => None,
@@ -107,7 +107,7 @@ pub struct Dir<'a, T: ReadWriteSeek + 'a> {
 }
 
 impl<'a, T: ReadWriteSeek + 'a> Dir<'a, T> {
-    pub(crate) fn new(stream: DirRawStream<'a, T>, fs: &'a FileSystem<T>) -> Self {
+    pub fn new(stream: DirRawStream<'a, T>, fs: &'a FileSystem<T>) -> Self {
         Dir { stream, fs }
     }
 
@@ -222,6 +222,27 @@ impl<'a, T: ReadWriteSeek + 'a> Dir<'a, T> {
         }
     }
 
+    /// Same as `[create_file]` but uses a specific directory entry value during file creation.
+    ///
+    /// This operation can be used to create a "hard link" to a file that already exists. The
+    /// short name of the entry is overwritten by an automatically generated short name.
+    ///
+    /// Returns `None` if the file already exists.
+    pub fn create_file_with_entry(&self, name: &str, mut entry: DirFileEntryData) -> io::Result<Option<File<'a, T>>> {
+        trace!("create_file_with_entry {name} {entry:?}");
+        assert!(!name.contains('/'), "Name cannot contain '/'");
+        let r = self.check_for_existence(name, Some(false))?;
+        match r {
+            // file does not exist - write the dir entry
+            DirEntryOrShortName::ShortName(short_name) => {
+                entry.set_name(short_name);
+                Ok(Some(self.write_entry(name, entry)?.to_file()))
+            },
+            // file already exists
+            DirEntryOrShortName::DirEntry(_) => Ok(None),
+        }
+    }
+
     /// Creates new directory or opens existing.
     ///
     /// `path` is a '/' separated path relative to self directory.
@@ -255,6 +276,38 @@ impl<'a, T: ReadWriteSeek + 'a> Dir<'a, T> {
             },
             // directory already exists - return it
             DirEntryOrShortName::DirEntry(e) => Ok(e.to_dir()),
+        }
+    }
+
+    /// Same as `[create_dir]` but uses a specific cluster during directory creation.
+    ///
+    /// This operation can be used to create a "hard link" to a directory that already exists.
+    /// The short file name of the entry is overwritten by an automatically generated short name.
+    ///
+    /// Returns `None` if the directory already exists.
+    pub fn create_dir_with_entry(&self, name: &str, mut entry: DirFileEntryData) -> io::Result<Option<Self>> {
+        assert!(!name.contains('/'), "Name cannot contain '/'");
+        trace!("create_dir_with_entry {name} {entry:?}");
+        let r = self.check_for_existence(name, Some(true))?;
+        match r {
+            // directory does not exist - create it
+            DirEntryOrShortName::ShortName(short_name) => {
+                entry.set_name(short_name);
+                let dir_entry = self.write_entry(name, entry)?;
+                let dir = dir_entry.to_dir();
+                Ok(Some(dir))
+            },
+            // directory already exists - return it
+            DirEntryOrShortName::DirEntry(_) => Ok(None),
+        }
+    }
+
+    /// Directory entry (inside the parent directory) corresponding to this directory,
+    /// or `None` if this is the root directory.
+    pub fn entry(&self) -> Option<DirFileEntryData> {
+        match self.stream {
+            DirRawStream::File(ref file) => file.entry(),
+            DirRawStream::Root(_) => None,
         }
     }
 
@@ -294,6 +347,32 @@ impl<'a, T: ReadWriteSeek + 'a> Dir<'a, T> {
         if let Some(n) = e.first_cluster() {
             self.fs.free_cluster_chain(n)?;
         }
+        // free long and short name entries
+        let mut stream = self.stream.clone();
+        stream.seek(SeekFrom::Start(e.offset_range.0 as u64))?;
+        let num = (e.offset_range.1 - e.offset_range.0) as usize / DIR_ENTRY_SIZE as usize;
+        for _ in 0..num {
+            let mut data = DirEntryData::deserialize(&mut stream)?;
+            trace!("removing dir entry {:?}", data);
+            data.set_deleted();
+            stream.seek(SeekFrom::Current(-(DIR_ENTRY_SIZE as i64)))?;
+            data.serialize(&mut stream)?;
+        }
+        Ok(())
+    }
+
+    /// Removes directory entries without clearing allocated clusters.
+    ///
+    /// This can be used to unlink a "hard link".
+    pub fn unlink(&self, path: &str) -> io::Result<()> {
+        trace!("unlink {}", path);
+        // traverse path
+        let (name, rest_opt) = split_path(path);
+        if let Some(rest) = rest_opt {
+            let e = self.find_entry(name, Some(true), None)?;
+            return e.to_dir().unlink(rest);
+        }
+        let e = self.find_entry(name, None, None)?;
         // free long and short name entries
         let mut stream = self.stream.clone();
         stream.seek(SeekFrom::Start(e.offset_range.0 as u64))?;
@@ -465,6 +544,10 @@ impl<'a, T: ReadWriteSeek + 'a> Dir<'a, T> {
             entry_pos: abs_pos.unwrap(), // SAFE: abs_pos is absent only for empty file
             offset_range: (start_pos, end_pos),
         })
+    }
+
+    pub fn first_cluster(&self) -> Option<u32> {
+        self.stream.first_cluster()
     }
 }
 

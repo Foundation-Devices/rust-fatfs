@@ -452,7 +452,7 @@ impl<T: ReadWriteSeek> FileSystem<T> {
         self.bpb.cluster_size()
     }
 
-    pub(crate) fn offset_from_cluster(&self, cluser: u32) -> u64 {
+    pub fn offset_from_cluster(&self, cluser: u32) -> u64 {
         self.offset_from_sector(self.sector_from_cluster(cluser))
     }
 
@@ -469,7 +469,7 @@ impl<T: ReadWriteSeek> FileSystem<T> {
         fat_slice(io, &self.bpb)
     }
 
-    pub(crate) fn cluster_iter<'b>(&'b self, cluster: u32) -> ClusterIterator<DiskSlice<FsIoAdapter<'b, T>>> {
+    pub fn cluster_iter<'b>(&'b self, cluster: u32) -> ClusterIterator<DiskSlice<FsIoAdapter<'b, T>>> {
         let disk_slice = self.fat_slice();
         ClusterIterator::new(disk_slice, self.fat_type, cluster)
     }
@@ -594,7 +594,7 @@ impl<T: ReadWriteSeek> Drop for FileSystem<T> {
     }
 }
 
-pub(crate) struct FsIoAdapter<'a, T: ReadWriteSeek + 'a> {
+pub struct FsIoAdapter<'a, T: ReadWriteSeek + 'a> {
     fs: &'a FileSystem<T>,
 }
 
@@ -644,7 +644,7 @@ fn fat_slice<T: ReadWriteSeek>(io: T, bpb: &BiosParameterBlock) -> DiskSlice<T> 
     DiskSlice::from_sectors(fat_first_sector, sectors_per_fat, mirrors, bpb, io)
 }
 
-pub(crate) struct DiskSlice<T> {
+pub struct DiskSlice<T> {
     begin: u64,
     size: u64,
     offset: u64,

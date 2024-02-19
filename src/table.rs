@@ -411,7 +411,7 @@ impl FatTrait for Fat32 {
     }
 }
 
-pub(crate) struct ClusterIterator<T: ReadWriteSeek> {
+pub struct ClusterIterator<T: ReadWriteSeek> {
     fat: T,
     fat_type: FatType,
     cluster: Option<u32>,

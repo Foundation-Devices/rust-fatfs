@@ -4,6 +4,7 @@ use io;
 use io::prelude::*;
 use io::{ErrorKind, SeekFrom};
 
+use crate::DirFileEntryData;
 use dir_entry::DirEntryEditor;
 use fs::{FileSystem, ReadWriteSeek};
 use time::{Date, DateTime};
@@ -27,7 +28,7 @@ pub struct File<'a, T: ReadWriteSeek + 'a> {
 }
 
 impl<'a, T: ReadWriteSeek> File<'a, T> {
-    pub(crate) fn new(first_cluster: Option<u32>, entry: Option<DirEntryEditor>, fs: &'a FileSystem<T>) -> Self {
+    pub fn new(first_cluster: Option<u32>, entry: Option<DirEntryEditor>, fs: &'a FileSystem<T>) -> Self {
         File {
             first_cluster,
             entry,
@@ -131,6 +132,11 @@ impl<'a, T: ReadWriteSeek> File<'a, T> {
         }
     }
 
+    /// The directory entry corresponding to this file, or `None` if this file is the root directory.
+    pub fn entry(&self) -> Option<DirFileEntryData> {
+        self.entry.as_ref().map(|e| e.inner().clone())
+    }
+
     fn size(&self) -> Option<u32> {
         match self.entry {
             Some(ref e) => e.inner().size(),
@@ -157,7 +163,7 @@ impl<'a, T: ReadWriteSeek> File<'a, T> {
         }
     }
 
-    pub(crate) fn first_cluster(&self) -> Option<u32> {
+    pub fn first_cluster(&self) -> Option<u32> {
         self.first_cluster
     }
 }
